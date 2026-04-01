@@ -31,8 +31,25 @@ export function AuthPage() {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [showDiag, setShowDiag] = useState(false)
 
   const title = useMemo(() => (mode === 'login' ? 'Login' : 'Create account'), [mode])
+  const envDiag = useMemo(() => {
+    const keys = [
+      'VITE_FIREBASE_API_KEY',
+      'VITE_FIREBASE_AUTH_DOMAIN',
+      'VITE_FIREBASE_PROJECT_ID',
+      'VITE_FIREBASE_STORAGE_BUCKET',
+      'VITE_FIREBASE_MESSAGING_SENDER_ID',
+      'VITE_FIREBASE_APP_ID',
+    ]
+    return {
+      online: typeof navigator !== 'undefined' ? navigator.onLine : true,
+      missing: keys.filter((k) => !import.meta.env[k] || String(import.meta.env[k]).trim() === ''),
+      authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+      projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+    }
+  }, [])
 
   async function onSubmit(e) {
     e.preventDefault()
@@ -128,6 +145,49 @@ export function AuthPage() {
 
         <div className="muted">
           Tip: after signup, your email is stored in Firestore so others can start a chat by your email.
+        </div>
+
+        <div style={{ marginTop: 6 }}>
+          <button className="btn" type="button" onClick={() => setShowDiag((v) => !v)}>
+            {showDiag ? 'Hide' : 'Show'} diagnostics
+          </button>
+          {showDiag ? (
+            <div
+              style={{
+                marginTop: 10,
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                padding: 12,
+                display: 'grid',
+                gap: 6,
+                textAlign: 'left',
+              }}
+            >
+              <div className="muted">
+                Online: <b style={{ color: 'var(--text-h)' }}>{String(envDiag.online)}</b>
+              </div>
+              <div className="muted">
+                Project: <b style={{ color: 'var(--text-h)' }}>{envDiag.projectId || '(missing)'}</b>
+              </div>
+              <div className="muted">
+                Auth domain:{' '}
+                <b style={{ color: 'var(--text-h)' }}>{envDiag.authDomain || '(missing)'}</b>
+              </div>
+              <div className={envDiag.missing.length ? 'error' : 'muted'}>
+                Env vars:{" "}
+                {envDiag.missing.length ? (
+                  <span>
+                    Missing {envDiag.missing.length}: <b>{envDiag.missing.join(', ')}</b>
+                    <div className="muted" style={{ marginTop: 6 }}>
+                      On Vercel: add these in Project → Settings → Environment Variables, then redeploy.
+                    </div>
+                  </span>
+                ) : (
+                  <b style={{ color: 'var(--text-h)' }}>OK</b>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

@@ -113,7 +113,24 @@ export function ChatPage() {
       setActiveConversationId(convoId)
       setTargetEmail('')
     } catch (err) {
-      setStartError(err?.message || String(err))
+      const code = err?.code
+      const message = err?.message || String(err)
+      const msgLower = String(message).toLowerCase()
+      const looksOffline =
+        code === 'unavailable' ||
+        message === 'Failed to get document because the client is offline.' ||
+        msgLower.includes('client is offline') ||
+        msgLower.includes('offline')
+
+      const base = `Search failed${code ? ` (${code})` : ''}: ${message}`
+      if (!looksOffline) {
+        setStartError(base)
+        return
+      }
+
+      setStartError(
+        `${base}\n\nIf you are on LOCAL: check your internet / firewall / adblock.\nIf you are on VERCEL: confirm Vercel env vars (VITE_FIREBASE_*) are set, then redeploy.\nAlso make sure Firestore Database is created in Firebase Console.`,
+      )
     } finally {
       setBusyStart(false)
     }
