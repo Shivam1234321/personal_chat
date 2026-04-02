@@ -111,7 +111,15 @@ service cloud.firestore {
             || validTypedText()
             || validImageDataUrl()
           );
-        allow update, delete: if false;
+
+        allow update: if false;
+
+        // Permanent delete allowed only by sender within 5 minutes of creation.
+        allow delete: if signedIn()
+          && request.auth.uid == resource.data.senderId
+          && resource.data.createdAt is timestamp
+          && resource.data.createdAt + duration.value(5, 'minutes') >= request.time
+          && request.auth.uid in convoDoc().members;
       }
     }
   }

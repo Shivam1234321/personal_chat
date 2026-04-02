@@ -3,7 +3,9 @@ import {
   addDoc,
   collection,
   doc,
+  deleteDoc,
   getDoc,
+  getDocs,
   increment,
   limit,
   onSnapshot,
@@ -47,8 +49,11 @@ function scrollMessagesToBottom(el, endEl) {
   endEl?.scrollIntoView({ block: 'end', behavior: 'auto' })
 }
 
-function MessageBubble({ m, myUid, onImageOpen }) {
+function MessageBubble({ m, myUid, onImageOpen, onDelete, nowMs }) {
   const isMe = m.senderId === myUid
+  const createdMs = m.createdAt?.toMillis ? m.createdAt.toMillis() : null
+  const canDelete =
+    isMe && typeof createdMs === 'number' && typeof nowMs === 'number' && nowMs - createdMs <= 5 * 60 * 1000
   const time = formatMessageTime(m.createdAt)
   const type = m.type
   const imageSrc = type === 'image' ? (m.dataUrl || m.mediaUrl) : null
@@ -86,6 +91,16 @@ function MessageBubble({ m, myUid, onImageOpen }) {
       className={['bubble', isMe ? 'me' : ''].join(' ')}
       title={isMe ? 'You' : 'Them'}
     >
+      {canDelete ? (
+        <button
+          type="button"
+          className="message-delete-btn"
+          aria-label="Delete message permanently"
+          onClick={() => onDelete?.(m.id)}
+        >
+          🗑
+        </button>
+      ) : null}
       {body}
       {time ? <div className="bubble-time">{time}</div> : null}
     </div>
@@ -160,6 +175,7 @@ export function ChatPage() {
   const [sendError, setSendError] = useState('')
   const [busySend, setBusySend] = useState(false)
   const [otherTyping, setOtherTyping] = useState(false)
+  const [nowMs, setNowMs] = useState(0)
   const [imageLightbox, setImageLightbox] = useState(null)
   const closeLightbox = useCallback(() => setImageLightbox(null), [])
 
@@ -320,6 +336,13 @@ export function ChatPage() {
     return () => ro.disconnect()
   }, [activeConversationId])
 
+  // Used to enable/disable the 5-minute delete button without calling Date.now() during render.
+  useEffect(() => {
+    setNowMs(Date.now())
+    const t = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [])
+
   // Mark this conversation as read for the current user.
   useEffect(() => {
     if (!activeConversationId || !myUid) return
@@ -470,6 +493,47 @@ export function ChatPage() {
       setSendError(err?.message || String(err))
     } finally {
       setBusySend(false)
+    }
+  }
+
+  async function handleDeleteMessage(messageId) {
+    if (!activeConversationId || !messageId) return
+    if (!window.confirm('Delete this message permanently?')) return
+    try {
+      await deleteDoc(
+        doc(db, 'conversations', activeConversationId, 'messages', messageId),
+      )
+
+      // Update sidebar preview (`lastMessage`) to the latest remaining message.
+      const lastSnap = await getDocs(
+        query(
+          collection(db, 'conversations', activeConversationId, 'messages'),
+          orderBy('createdAt', 'desc'),
+          limit(1),
+        ),
+      )
+      let lastPreview = ''
+      if (!lastSnap.empty) {
+        const last = lastSnap.docs[0].data()
+        const lastType = last.type
+        const caption = last.text ? String(last.text).trim() : ''
+        if (lastType === 'image') {
+          lastPreview = caption ? `📷 ${caption}` : '📷 Photo'
+        } else if (lastType === 'text' || lastType == null) {
+          lastPreview = caption || last.text || ''
+        } else if (lastType === 'video') {
+          lastPreview = caption ? `🎬 ${caption}` : '🎬 Video'
+        } else {
+          lastPreview = caption || last.text || ''
+        }
+      }
+
+      await updateDoc(doc(db, 'conversations', activeConversationId), {
+        lastMessage: String(lastPreview).slice(0, 160),
+        updatedAt: serverTimestamp(),
+      })
+    } catch (err) {
+      console.error('deleteMessage failed', err)
     }
   }
 
@@ -647,7 +711,14 @@ export function ChatPage() {
             {activeConversation ? (
               <>
                 {messages.map((m) => (
-                  <MessageBubble key={m.id} m={m} myUid={myUid} onImageOpen={setImageLightbox} />
+                  <MessageBubble
+                    key={m.id}
+                    m={m}
+                    myUid={myUid}
+                    onImageOpen={setImageLightbox}
+                    onDelete={handleDeleteMessage}
+                    nowMs={nowMs}
+                  />
                 ))}
                 <div ref={messagesEndRef} className="messages-end-spacer" aria-hidden />
               </>
