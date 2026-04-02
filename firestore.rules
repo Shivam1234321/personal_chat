@@ -39,6 +39,32 @@ service cloud.firestore {
       allow update: if convoMember(resource.data);
       allow delete: if false;
 
+      match /typing/{uid} {
+        function convoDoc() {
+          return get(/databases/$(database)/documents/conversations/$(conversationId)).data;
+        }
+
+        function isMember() {
+          return signedIn() && request.auth.uid in convoDoc().members;
+        }
+
+        function validTypingDoc() {
+          return request.resource.data.keys().hasAll(['isTyping', 'lastUpdated'])
+            && request.resource.data.keys().hasOnly(['isTyping', 'lastUpdated'])
+            && request.resource.data.isTyping is bool
+            && (request.resource.data.lastUpdated is timestamp || request.resource.data.lastUpdated == null);
+        }
+
+        allow get, list: if isMember();
+
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && isMember()
+          && validTypingDoc();
+
+        allow delete: if false;
+      }
+
       match /messages/{messageId} {
         allow get, list: if convoMember(get(/databases/$(database)/documents/conversations/$(conversationId)).data);
 

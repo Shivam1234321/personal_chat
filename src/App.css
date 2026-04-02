@@ -233,6 +233,14 @@
   white-space: nowrap;
 }
 
+.typing-indicator {
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.85;
+  margin-top: 4px;
+  text-align: center;
+}
+
 .messages-wrap {
   flex: 1;
   min-height: 0;

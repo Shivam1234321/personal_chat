@@ -158,6 +158,7 @@ export function ChatPage() {
   const [messageText, setMessageText] = useState('')
   const [sendError, setSendError] = useState('')
   const [busySend, setBusySend] = useState(false)
+  const [otherTyping, setOtherTyping] = useState(false)
   const [imageLightbox, setImageLightbox] = useState(null)
   const closeLightbox = useCallback(() => setImageLightbox(null), [])
 
@@ -167,6 +168,16 @@ export function ChatPage() {
   const messagesEndRef = useRef(null)
   const galleryInputRef = useRef(null)
   const cameraPhotoInputRef = useRef(null)
+  const typingStopTimeoutRef = useRef(null)
+  const lastTypingWriteAtRef = useRef(0)
+
+  const otherUid = useMemo(() => {
+    if (!activeConversation) return null
+    const map = activeConversation?.memberEmails || {}
+    const entries = Object.entries(map)
+    const other = entries.find(([uid]) => uid !== myUid)
+    return other?.[0] || null
+  }, [activeConversation, myUid])
 
   useEffect(() => {
     if (!myUid) return
@@ -238,6 +249,45 @@ export function ChatPage() {
       setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
   }, [activeConversationId, myUid])
+
+  function sendTyping(isTyping) {
+    if (!activeConversationId || !myUid) return Promise.resolve()
+    return setDoc(
+      doc(db, 'conversations', activeConversationId, 'typing', myUid),
+      { isTyping: !!isTyping, lastUpdated: serverTimestamp() },
+      { merge: true },
+    ).catch(() => {
+      // Ignore typing write failures (rules/network). UX only.
+    })
+  }
+
+  // Listen to typing indicator for the other user in this conversation.
+  useEffect(() => {
+    if (!activeConversationId || !otherUid) {
+      setOtherTyping(false)
+      return
+    }
+
+    const typingRef = doc(db, 'conversations', activeConversationId, 'typing', otherUid)
+    return onSnapshot(typingRef, (snap) => {
+      const data = snap.data()
+      const isTyping = !!data?.isTyping
+      const lastUpdated = data?.lastUpdated
+      const ms = lastUpdated?.toMillis ? lastUpdated.toMillis() : null
+      const fresh = typeof ms === 'number' ? Date.now() - ms <= 4000 : false
+      setOtherTyping(isTyping && fresh)
+    })
+  }, [activeConversationId, otherUid])
+
+  // Stop typing when leaving the conversation.
+  useEffect(() => {
+    return () => {
+      if (typingStopTimeoutRef.current) clearTimeout(typingStopTimeoutRef.current)
+      typingStopTimeoutRef.current = null
+      void sendTyping(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeConversationId])
 
   /* Open chat at latest messages; pin until first non-empty render; then only if near bottom */
   useLayoutEffect(() => {
@@ -343,6 +393,7 @@ export function ChatPage() {
     setSendError('')
     setBusySend(true)
     try {
+      void sendTyping(false)
       const text = String(messageText || '').trim()
       if (!text) return
 
@@ -377,6 +428,7 @@ export function ChatPage() {
 
     setBusySend(true)
     try {
+      void sendTyping(false)
       const dataUrl = await compressImageFileToDataUrl(file)
       const caption = String(messageText || '').trim()
       const msgRef = collection(db, 'conversations', activeConversationId, 'messages')
@@ -406,6 +458,35 @@ export function ChatPage() {
     const file = e.target.files?.[0]
     e.target.value = ''
     void uploadImageAsBase64(file)
+  }
+
+  function handleComposerChange(value) {
+    setMessageText(value)
+    if (!activeConversationId || !myUid) return
+
+    if (typingStopTimeoutRef.current) {
+      clearTimeout(typingStopTimeoutRef.current)
+      typingStopTimeoutRef.current = null
+    }
+
+    const trimmed = String(value || '').trim()
+    const shouldTyping = trimmed.length > 0
+    if (!shouldTyping) {
+      lastTypingWriteAtRef.current = Date.now()
+      void sendTyping(false)
+      return
+    }
+
+    const now = Date.now()
+    if (now - lastTypingWriteAtRef.current > 900) {
+      lastTypingWriteAtRef.current = now
+      void sendTyping(true)
+    }
+
+    typingStopTimeoutRef.current = setTimeout(() => {
+      void sendTyping(false)
+      typingStopTimeoutRef.current = null
+    }, 2500)
   }
 
   const peerLabel = activeConversation
@@ -513,6 +594,7 @@ export function ChatPage() {
           </div>
           <div className="chat-toolbar-text">
             <span className="chat-toolbar-peer">{peerLabel}</span>
+            {otherTyping ? <div className="typing-indicator">typing…</div> : null}
           </div>
           <div className="chat-toolbar-side chat-toolbar-side--end">
             {isMobile && activeConversationId ? (
@@ -588,7 +670,7 @@ export function ChatPage() {
               disabled={!activeConversationId}
               placeholder={activeConversationId ? 'Message…' : 'Select a chat…'}
               value={messageText}
-              onChange={(e) => setMessageText(e.target.value)}
+              onChange={(e) => handleComposerChange(e.target.value)}
             />
             <button className="btn primary" disabled={!activeConversationId || busySend} type="submit">
               {busySend ? '…' : 'Send'}
