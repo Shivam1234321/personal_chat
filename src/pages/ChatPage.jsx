@@ -21,6 +21,7 @@ import { compressImageFileToDataUrl } from '../utils/imageBase64.js'
 import { formatMessageTime } from '../utils/messageTime.js'
 import { conversationIdForUids, normalizeEmail } from '../utils/conversation.js'
 import { downloadImageFromSrc } from '../utils/downloadImage.js'
+import { playIncomingMessageSound } from '../utils/incomingMessageSound.js'
 
 function otherMemberEmail(conversation, myUid) {
   const map = conversation?.memberEmails || {}
@@ -219,10 +220,24 @@ export function ChatPage() {
       orderBy('createdAt', 'asc'),
       limit(200),
     )
+    let isFirstMessagesSnapshot = true
     return onSnapshot(q, (snap) => {
+      if (!isFirstMessagesSnapshot) {
+        for (const change of snap.docChanges()) {
+          if (change.type === 'added') {
+            const sender = change.doc.data()?.senderId
+            if (sender && sender !== myUid) {
+              playIncomingMessageSound()
+              break
+            }
+          }
+        }
+      } else {
+        isFirstMessagesSnapshot = false
+      }
       setMessages(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
     })
-  }, [activeConversationId])
+  }, [activeConversationId, myUid])
 
   /* Open chat at latest messages; pin until first non-empty render; then only if near bottom */
   useLayoutEffect(() => {
