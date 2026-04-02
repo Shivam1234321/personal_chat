@@ -4,6 +4,7 @@ import {
   collection,
   doc,
   getDoc,
+  increment,
   limit,
   onSnapshot,
   orderBy,
@@ -319,6 +320,14 @@ export function ChatPage() {
     return () => ro.disconnect()
   }, [activeConversationId])
 
+  // Mark this conversation as read for the current user.
+  useEffect(() => {
+    if (!activeConversationId || !myUid) return
+    void updateDoc(doc(db, 'conversations', activeConversationId), {
+      [`unreadCounts.${myUid}`]: 0,
+    }).catch(() => {})
+  }, [activeConversationId, myUid])
+
   useEffect(() => {
     if (isMobile && activeConversationId) setDrawerOpen(false)
   }, [activeConversationId, isMobile])
@@ -356,6 +365,10 @@ export function ChatPage() {
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
           lastMessage: '',
+          unreadCounts: {
+            [myUid]: 0,
+            [otherUid]: 0,
+          },
         })
       } else {
         await updateDoc(convoRef, { updatedAt: serverTimestamp() })
@@ -405,9 +418,12 @@ export function ChatPage() {
         createdAt: serverTimestamp(),
       })
 
+      const otherUid = activeConversation?.members?.find((m) => m !== myUid)
       await updateDoc(doc(db, 'conversations', activeConversationId), {
         lastMessage: text.slice(0, 160),
         updatedAt: serverTimestamp(),
+        [`unreadCounts.${myUid}`]: 0,
+        ...(otherUid ? { [`unreadCounts.${otherUid}`]: increment(1) } : {}),
       })
 
       setMessageText('')
@@ -441,9 +457,12 @@ export function ChatPage() {
       })
 
       const preview = caption ? `📷 ${caption.slice(0, 120)}` : '📷 Photo'
+      const otherUid = activeConversation?.members?.find((m) => m !== myUid)
       await updateDoc(doc(db, 'conversations', activeConversationId), {
         lastMessage: preview.slice(0, 160),
         updatedAt: serverTimestamp(),
+        [`unreadCounts.${myUid}`]: 0,
+        ...(otherUid ? { [`unreadCounts.${otherUid}`]: increment(1) } : {}),
       })
 
       setMessageText('')
@@ -557,20 +576,33 @@ export function ChatPage() {
 
           <div className="conversation-list" role="list">
             {conversations.length ? (
-              conversations.map((c) => (
-                <div
-                  key={c.id}
-                  role="listitem"
-                  className={[
-                    'conversation-item',
-                    c.id === activeConversationId ? 'active' : '',
-                  ].join(' ')}
-                  onClick={() => selectConversation(c.id)}
-                >
-                  <div className="conversation-item-name">{otherMemberEmail(c, myUid)}</div>
-                  <div className="muted conversation-item-preview">{c.lastMessage || 'No messages yet'}</div>
-                </div>
-              ))
+              conversations.map((c) => {
+                const unreadCount = c?.unreadCounts?.[myUid] || 0
+                const unreadLabel = unreadCount > 99 ? '99+' : unreadCount
+                return (
+                  <div
+                    key={c.id}
+                    role="listitem"
+                    className={[
+                      'conversation-item',
+                      c.id === activeConversationId ? 'active' : '',
+                    ].join(' ')}
+                    onClick={() => selectConversation(c.id)}
+                  >
+                    <div className="conversation-item-top">
+                      <div className="conversation-item-name">{otherMemberEmail(c, myUid)}</div>
+                      {unreadCount > 0 ? (
+                        <div className="conversation-unread-badge" aria-label={`${unreadCount} unread messages`}>
+                          {unreadLabel}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="muted conversation-item-preview">
+                      {c.lastMessage || 'No messages yet'}
+                    </div>
+                  </div>
+                )
+              })
             ) : (
               <div className="muted drawer-empty">No chats yet. Start one by email.</div>
             )}
