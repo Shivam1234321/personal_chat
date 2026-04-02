@@ -17,7 +17,11 @@ function App() {
     )
   }
 
-  return <div className="app-shell">{user ? <ChatPage /> : <AuthPage />}</div>
+  return (
+    <div className={`app-shell${user ? ' app-shell--chat' : ''}`}>
+      {user ? <ChatPage /> : <AuthPage />}
+    </div>
+  )
 }
 
 export default App

@@ -101,15 +101,62 @@ These rules ensure:
 - only you can read/write your own `users/{uid}`
 - `userEmails/*` is **get-only** (no list), so nobody can dump all emails
 - only conversation members can read/write a conversation
-- only members can read messages, and only the sender can create a message
+- only members can read messages; the sender can create text or base64 image messages (see `firestore.rules`)
 
-## Important: Firestore index
+## Images (base64 in Firestore — no Firebase Storage)
 
-This app queries:
-- `conversations` where `members` **array-contains** your uid
-- ordered by `updatedAt`
+Photos are **compressed in the browser** to JPEG, then stored as a **data URL** (`data:image/jpeg;base64,...`) in the message field `dataUrl`. You do **not** need to enable **Firebase Storage** for chat images.
 
-Firestore will likely ask you to create an index. When you see the error in the console, click the provided link and create the suggested index.
+**Limit:** a Firestore document must stay under **~1 MiB**. The app targets **~750k characters** for the data URL after compression. Very large originals are resized and recompressed so sends stay under that cap.
+
+**Video:** is not stored in Firestore (would exceed the size limit). Older chats may still show `type: 'video'` + `mediaUrl` if you used Storage before.
+
+### Message document shapes (Firestore)
+
+**Text**
+
+```js
+{ type: 'text', text: 'hello', senderId, createdAt }
+```
+
+**Image (current)**
+
+```js
+{ type: 'image', dataUrl: 'data:image/jpeg;base64,...', text?: 'optional caption', senderId, createdAt }
+```
+
+**Legacy:** `{ text, senderId, createdAt }` or old `{ type: 'image'|'video', mediaUrl: 'https://...' }` from Storage still **display** if present in the database.
+
+## Important: Firestore composite index (required)
+
+The chat list runs this query:
+
+- Collection: `conversations`
+- Filter: `members` **array-contains** your user id
+- Order: `updatedAt` **descending**
+
+That combination needs a **composite index**. Without it, the listener fails with `failed-precondition: The query requires an index`, and **your chats / partner email will not show**.
+
+### Option A — Use the link from the error (fastest)
+
+1. Open DevTools → **Console** on your app.
+2. Find the line: `The query requires an index. You can create it here: https://...`
+3. **Open that URL** → Firebase Console → **Create index**.
+4. Wait until the index **Status** is **Enabled** (can take a few minutes).
+5. Refresh your app.
+
+### Option B — Deploy indexes from this repo (Firebase CLI)
+
+This repo includes `firestore.indexes.json` and `firebase.json`.
+
+```bash
+npm install -g firebase-tools
+firebase login
+firebase use <your-project-id>
+firebase deploy --only firestore:indexes
+```
+
+Then wait for the index to finish building in **Firestore → Indexes**.
 
 ## Deploy to Vercel (free)
 

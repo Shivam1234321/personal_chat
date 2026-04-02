@@ -50,6 +50,30 @@ body {
   min-height: 100svh;
 }
 
+#root:has(.app-shell--chat) {
+  min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (min-width: 901px) {
+  #root:has(.app-shell--chat) {
+    height: auto;
+    min-height: 100dvh;
+  }
+}
+
+body:has(.app-shell--chat) {
+  overflow: hidden;
+}
+
+@media (min-width: 901px) {
+  body:has(.app-shell--chat) {
+    overflow: auto;
+  }
+}
+
 h1,
 h2 {
   font-family: var(--heading);

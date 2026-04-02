@@ -41,12 +41,50 @@ service cloud.firestore {
 
       match /messages/{messageId} {
         allow get, list: if convoMember(get(/databases/$(database)/documents/conversations/$(conversationId)).data);
+
+        function convoDoc() {
+          return get(/databases/$(database)/documents/conversations/$(conversationId)).data;
+        }
+
+        function validTextMessage() {
+          return !('type' in request.resource.data)
+            && !('mediaUrl' in request.resource.data)
+            && !('dataUrl' in request.resource.data)
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 4000;
+        }
+
+        function validTypedText() {
+          return request.resource.data.type == 'text'
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 4000;
+        }
+
+        function validCaption() {
+          return !('text' in request.resource.data)
+            || (request.resource.data.text is string && request.resource.data.text.size() <= 500);
+        }
+
+        // Image stored as data URL (base64) in Firestore — no Storage bucket.
+        function validImageDataUrl() {
+          return request.resource.data.type == 'image'
+            && request.resource.data.dataUrl is string
+            && request.resource.data.dataUrl.size() > 30
+            && request.resource.data.dataUrl.size() <= 950000
+            && request.resource.data.dataUrl.matches('^data:image/[^;]+;base64,.+')
+            && validCaption();
+        }
+
         allow create: if signedIn()
-          && (request.auth.uid in get(/databases/$(database)/documents/conversations/$(conversationId)).data.members)
+          && (request.auth.uid in convoDoc().members)
           && request.resource.data.senderId == request.auth.uid
-          && request.resource.data.text is string
-          && request.resource.data.text.size() > 0
-          && request.resource.data.text.size() <= 4000;
+          && (
+            validTextMessage()
+            || validTypedText()
+            || validImageDataUrl()
+          );
         allow update, delete: if false;
       }
     }
